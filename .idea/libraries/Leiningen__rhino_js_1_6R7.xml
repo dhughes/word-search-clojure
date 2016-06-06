@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="Leiningen: rhino/js:1.6R7">
+    <CLASSES>
+      <root url="jar://$MAVEN_REPOSITORY$/rhino/js/1.6R7/js-1.6R7.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
