@@ -3,7 +3,7 @@
 
 (def random-item (comp first shuffle))
 
-(def words (str/split-lines (slurp "words.txt")))
+(def words (str/split-lines (str/upper-case (slurp "words.txt"))))
 
 (defn random-letter []
   (random-item (map (comp str char) (range 65 91))))
@@ -16,110 +16,137 @@
 (defn rand-range [min max]
   (rand-nth (range min max)))
 
-;; a generic function for extracting sets of characters from a table of characters
-(defn extract [fnx fny table x y length]
+(defn puzzle-bounds [puzzle]
+  {
+   :left 0
+   :top 0
+   :right (dec (count (get puzzle 0)))
+   :bottom (dec (count puzzle))})
+
+(defn offset-bounds [puzzle offset-from offset]
   (let [
-        width (count (get table 0))
-        height (count table)]
-    (loop [
-           x x
-           y y
-           remaining length
-           result []]
-      (cond
-        (= remaining 0) result
-        (> 0 x) result
-        (> 0 y) result
-        (>= x width) result
-        (>= y height) result
-        ;; find the next letter in the table
-        :else (recur
-                (fnx x)
-                (fny y)
-                (dec remaining)
-                (conj result {:x x :y y :value (get-in table [y x])}))))))
+        bounds (puzzle-bounds puzzle)
+        offset (dec offset)]
+    {:left (if (.contains offset-from :left)
+             (+ (bounds :left) offset)
+             (bounds :left))
+     :top (if (.contains offset-from :top)
+            (+ (bounds :top) offset)
+            0)
+     :right (if (.contains offset-from :right)
+              (- (bounds :right) offset)
+              (bounds :right))
+     :bottom  (if (.contains offset-from :bottom)
+                (- (bounds :bottom) offset)
+                (bounds :bottom))}))
 
-;; use left / top
-(defn use-zero [& args]
-  0)
 
-;; use offset (from left / top)
-(defn use-offset [_ offset]
-  (dec offset))
-
-;; use size (height / width)
-(defn use-size [size & args]
-  size)
-
-;; offset size
-(defn use-size-minus-offset [size offset]
-  (- size (dec offset)))
+;; a generic function for extracting sets of characters from a table of characters
+(defn extract [fnx fny table point length]
+  (loop [
+         x (get point :x)
+         y (get point :y)
+         remaining length
+         result []]
+    (cond
+      (= remaining 0) result
+      ;; find the next letter in the table
+      :else (recur
+              (fnx x)
+              (fny y)
+              (dec remaining)
+              (conj result {:x x :y y :value (get-in table [y x])})))))
 
 ;; picks a random point using the bounds defined by the provided functions
-(defn random-point [fnLeft fnTop fnRight fnBottom puzzle length]
-  (let [
-        width (count (get puzzle 0))
-        height (count puzzle)]
-    {
-     :x (rand-range (fnLeft width length) (fnRight width length))
-     :y (rand-range (fnTop height length) (fnBottom height length))}))
+(defn random-point [bounds]
+  {:x (rand-range (bounds :left) (inc (bounds :right)))
+   :y (rand-range (bounds :top) (inc (bounds :bottom)))})
 
 (def directions {
                  :north {
-                         :random-point (partial random-point use-zero use-offset use-size use-size)
+                         :offsets [:top]
                          :extract (partial extract identity dec)}
                  :northeast {
-                             :random-point (partial random-point use-zero use-offset use-size-minus-offset use-size)
+                             :offsets [:top :right]
                              :extract (partial extract inc dec)}
                  :east {
-                        :random-point (partial random-point use-zero use-zero use-size-minus-offset use-size)
+                        :offsets [:right]
                         :extract (partial extract inc identity)}
                  :southeast {
-                             :random-point (partial random-point use-zero use-zero use-size-minus-offset use-size-minus-offset)
+                             :offsets [:bottom :right]
                              :extract (partial extract inc inc)}
                  :south {
-                         :random-point (partial random-point use-zero use-zero use-size use-size-minus-offset)
+                         :offsets [:bottom]
                          :extract (partial extract identity inc)}
                  :southwest {
-                             :random-point (partial random-point use-offset use-zero use-size use-size-minus-offset)
+                             :offsets [:bottom :left]
                              :extract (partial extract dec inc)}
                  :west {
-                        :random-point (partial random-point use-offset use-zero use-size use-size)
+                        :offsets [:left]
                         :extract (partial extract dec identity)}
                  :northwest {
-                             :random-point (partial random-point use-offset use-offset use-size use-size)
+                             :offsets [:top :left]
                              :extract (partial extract dec dec)}})
 
-(defn get-word [pattern]
-  (map (fn [x] (random-letter)) pattern))
+(defn insertable-word [extracted]
+  (let [
+        pattern-string (str "^" (str/join (map #(or (% :value) ".") extracted)) "$")
+        pattern (re-pattern pattern-string)
+        words (filter #(re-matches pattern %) words)
+        word (if (> (count words) 0) (rand-nth words) nil)]
+    (if (nil? word)
+      nil
+      (let [
+            letters (str/split word #"")]
+           (map-indexed (fn [i ext] (assoc ext :value (get letters i))) extracted)))))
+
 
 (defn insert-random-word [puzzle min-length max-length]
   (let [
-        direction (rand-nth (keys directions))
-        extract ((directions direction) :extract)
-        point (((directions direction) :random-point) puzzle min-length)
-        extracted (extract puzzle (get point :x) (get point :y) max-length)]
-        ;word (get-word pattern)]
-    (println extracted)
-    puzzle))
-
-  ;(let [
-  ;      x (rand-int columns)
-  ;      y (rand-int rows)
-  ;      length (+ min-length (rand-int (- max-length (dec min-length))))
-  ;      extract-direction (rand-extract-direction x y length)]))
-
+        direction-key (rand-nth (keys directions))
+        direction (directions direction-key)
+        length (rand-range min-length (inc max-length))
+        bounds (offset-bounds (puzzle :table) (direction :offsets) length)
+        point (random-point bounds)
+        extracted ((direction :extract) (puzzle :table) point length)
+        insertable (insertable-word extracted)]
+    (if (not insertable)
+      puzzle
+      {:table (loop [
+                     insertable insertable
+                     table (puzzle :table)]
+                (if (= (count insertable) 0)
+                  table
+                  (let [
+                        item (first insertable)
+                        table (assoc-in table [(item :y) (item :x)] (item :value))]
+                    (recur (rest insertable) table))))
+       :words (conj (puzzle :words) {:word (str/join (map :value insertable))
+                                     :direction direction-key
+                                     :start {:x ((first insertable) :x)
+                                             :y ((first insertable) :y)}})})))
 
 (defn empty-table [rows columns]
   (into []
         (repeat rows (into []
                            (repeat columns nil)))))
 
+(defn empty-puzzle [rows columns]
+  {
+   :table (empty-table rows columns)
+   :words []})
+
+(defn random-letter-if-nil [letter]
+  (or letter (random-letter)))
+
+(defn fill-nils [puzzle]
+  (assoc puzzle :table (map #(map random-letter-if-nil %) (puzzle :table))))
+
 (defn generate-puzzle [columns rows number-of-words min-length max-length]
-  (loop [
-         remaining-words number-of-words
-         puzzle (empty-table rows columns)]
-    (if (= remaining-words 0)
-      puzzle
-      (recur (dec remaining-words) (insert-random-word puzzle min-length max-length)))))
+  (fill-nils (loop [
+                      puzzle (empty-puzzle rows columns)
+                      tries (* number-of-words 20)]
+                 (if (or (= (count (puzzle :words)) number-of-words) (= tries 0))
+                   puzzle
+                   (recur (insert-random-word puzzle min-length max-length) (dec tries))))))
 
