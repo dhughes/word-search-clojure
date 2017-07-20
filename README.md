@@ -1,14 +1,3 @@
-# word-search
+# word-search-clojure
 
-A Clojure library designed to ... well, that part is up to you.
-
-## Usage
-
-FIXME
-
-## License
-
-Copyright © 2016 FIXME
-
-Distributed under the Eclipse Public License either version 1.0 or (at
-your option) any later version.
+This project is an afternoon of coding to experiment with basic Clojure. The ultimate goal was to create a crossword puzzle generator. 
